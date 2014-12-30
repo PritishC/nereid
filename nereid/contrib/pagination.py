@@ -6,6 +6,7 @@ from sql import Select, Column
 from sql.functions import Function
 from sql.aggregate import Count
 from werkzeug.utils import cached_property
+from nereid import request
 
 
 class BasePagination(object):
@@ -239,6 +240,17 @@ class Pagination(BasePagination):
     def next(self, error_out=False):
         """Returns a :class:`Pagination` object for the next page."""
         return self.obj.paginate(self.page + 1, self.per_page, error_out)
+
+    @classmethod
+    def get_pagination_query(cls):
+        """
+        Returns dict of query string params without the 'page' param.
+        """
+        request_args = request.args.to_dict(flat=False)
+        
+        if 'page' in request_args:
+            del request_args['page']
+        return request_args
 
 
 class Distinct(Function):
