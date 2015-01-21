@@ -5,6 +5,7 @@ import unittest
 
 import trytond.tests.test_tryton
 from trytond.transaction import Transaction
+from trytond.pyson import Eval
 from trytond.tests.test_tryton import POOL, USER, DB_NAME, CONTEXT
 from nereid.contrib.pagination import Pagination, BasePagination, \
     QueryPagination
@@ -21,6 +22,8 @@ class TestPagination(unittest.TestCase):
         self.party_obj = POOL.get('party.party')
         self.currency_obj = POOL.get('currency.currency')
         self.address_obj = POOL.get('party.address')
+        self.country_obj = POOL.get('country.country')
+        self.category_obj = POOL.get('party.category')
 
     def setup_defaults(self):
         """
@@ -40,6 +43,10 @@ class TestPagination(unittest.TestCase):
         }])
         self.guest_party, = self.party_obj.create([{
             'name': 'Guest User',
+        }])
+        self.country, = self.country_obj.create([{
+            'name': 'United States',
+            'code': 'US',
         }])
 
     def test_0010_base_pagination(self):
@@ -155,6 +162,60 @@ class TestPagination(unittest.TestCase):
             self.assertEqual(pagination.pages, 10)
             self.assertEqual(pagination.begin_count, 1)
             self.assertEqual(pagination.end_count, 10)
+
+    def test_0060_query_pagination_joins(self):
+        """
+        Test QueryPagination specifically with joins.
+        """
+        with Transaction().start(DB_NAME, USER, CONTEXT):
+            self.setup_defaults()
+
+            # Create a 100 parties and their own addresses
+            for id in xrange(0, 100):
+                self.test_party = self.party_obj.create([{
+                    'name': 'name_' + str(id),
+                    'addresses': [('create', [{
+                        'party': Eval('party'),
+                        'name': 'address_' + str(id),
+                        'country': self.country.id,
+                    }])],
+                    'categories': [('create', [{
+                        'name': 'PartyCategory',
+                    }])],
+                }])
+
+            PartyTable = self.party_obj.__table__()
+            AddressTable = self.address_obj.__table__()
+            CountryTable = self.country_obj.__table__()
+            CategoryTable = self.category_obj.__table__()
+
+            query = PartyTable.join(
+                AddressTable,
+                condition=(AddressTable.party == PartyTable.id)
+            ).join(
+                CountryTable,
+                condition=(AddressTable.country == CountryTable.id)
+            ).join(
+                CategoryTable,
+                condition=(PartyTable.category == CategoryTable.id)
+            ).select(
+                order_by=()
+            )
+
+            # cursor = Transaction().cursor
+            # cursor.execute(*query)
+
+            # print "Fetchall: %s" % cursor.fetchall()
+
+            pagination = QueryPagination(
+                self.party_obj, query, PartyTable, page=1, per_page=10
+            )
+
+            # print "Pagination Count: %d" % pagination.count
+            # print "Pagination Pages: %d" % pagination.pages
+
+            self.assertEqual(pagination.count, 10)
+            self.assertEqual(pagination.pages, 100)
 
     # TODO: Test the order handling of serialization
 
