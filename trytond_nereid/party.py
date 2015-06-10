@@ -5,6 +5,7 @@ from flask_wtf import Form
 from wtforms import TextField, IntegerField, SelectField, validators
 from werkzeug import redirect, abort
 from jinja2 import TemplateNotFound
+import ConfigParser
 
 from nereid import request, url_for, render_template, login_required, flash, \
     jsonify, route, current_user
@@ -12,6 +13,7 @@ from trytond.model import ModelView, ModelSQL, fields
 from trytond.pool import Pool, PoolMeta
 from trytond.transaction import Transaction
 from trytond import backend
+from trytond.tools import file_open
 from sql import As, Literal, Column
 from .user import RegistrationForm
 from .i18n import _
@@ -63,30 +65,39 @@ class Address:
 
         super(Address, cls).__register__(module_name)
 
-        # Migration from 2.8: move phone and email to contact mechanisms
-        for column in ['email', 'phone']:
-            if table.column_exist(column):
-                join = address.join(
-                    party, condition=(party.id == address.party)
-                )
-                select = join.select(
-                    address.create_date, address.create_uid,
-                    address.write_date, address.write_uid,
-                    As(Literal(column), 'type'),
-                    As(Column(address, column), 'value'), address.party,
-                    As(Literal(True), 'active'),
-                    where=(Column(address, column) != '')
-                )
-                insert = mechanism.insert(
-                    columns=[
-                            mechanism.create_date,
-                            mechanism.create_uid, mechanism.write_date,
-                            mechanism.write_uid, mechanism.type,
-                            mechanism.value, mechanism.party, mechanism.active,
-                    ], values=select)
-                cursor.execute(*insert)
+        config = ConfigParser.ConfigParser()
+        config.readfp(file_open('tryton.cfg', subdir='modules/nereid'))
+        info = dict(config.items('tryton'))
 
-                table.column_rename(column, '%s_deprecated' % column)
+        version = info.get('version', '0.0.0.1')
+        major_version, minor_version, _, _ = version.split('.', 3)
+
+        if major_version == '2' and minor_version == '8':
+            # Migration from 2.8: move phone and email to contact mechanisms
+            for column in ['email', 'phone']:
+                if table.column_exist(column):
+                    join = address.join(
+                        party, condition=(party.id == address.party)
+                    )
+                    select = join.select(
+                        address.create_date, address.create_uid,
+                        address.write_date, address.write_uid,
+                        As(Literal(column), 'type'),
+                        As(Column(address, column), 'value'), address.party,
+                        As(Literal(True), 'active'),
+                        where=(Column(address, column) != '')
+                    )
+                    insert = mechanism.insert(
+                        columns=[
+                                mechanism.create_date,
+                                mechanism.create_uid, mechanism.write_date,
+                                mechanism.write_uid, mechanism.type,
+                                mechanism.value, mechanism.party,
+                                mechanism.active,
+                        ], values=select)
+                    cursor.execute(*insert)
+
+                    table.column_rename(column, '%s_deprecated' % column)
 
     @classmethod
     def get_address_form(cls, address=None):
